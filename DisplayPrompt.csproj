@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>DisplayPrompt</AssemblyName>
+    <RootNamespace>DisplayPrompt</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <Company>Ctrl+Alt+Elite</Company>
+    <Product>Display Prompt</Product>
+    <Version>1.8.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Embedded copy used for the tray icon -->
+    <EmbeddedResource Include="app.ico" LogicalName="DisplayPrompt.app.ico" />
+    <!-- Popup header icon -->
+    <Resource Include="app.png" />
+  </ItemGroup>
+
+</Project>
