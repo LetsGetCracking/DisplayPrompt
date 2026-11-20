@@ -22,7 +22,13 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Publish single-file exe
-        run: dotnet publish DisplayPrompt.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
+        shell: pwsh
+        run: |
+          # On a version tag (e.g. v1.10.0) stamp that version into the exe; the auto-updater checks it
+          $extra = @()
+          if ($env:GITHUB_REF -like 'refs/tags/v*') { $extra += "-p:Version=$($env:GITHUB_REF_NAME.TrimStart('v'))" }
+          dotnet publish DisplayPrompt.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish @extra
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Package
         shell: pwsh
@@ -30,18 +36,25 @@ jobs:
           $ver = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.TrimStart('v') } else { 'dev' }
           $name = "DisplayPrompt-$ver-win-x64"
           New-Item -ItemType Directory -Path $name | Out-Null
-          Copy-Item publish\DisplayPrompt.exe, install.ps1, uninstall.ps1, LICENSE $name
+          Copy-Item publish\DisplayPrompt.exe, install.ps1, uninstall.ps1, updater.ps1, LICENSE $name
           Compress-Archive -Path $name -DestinationPath "$name.zip"
+          # Checksum file used by the auto-updater to verify the download
+          $hash = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name.zip" | Out-File -FilePath "$name.zip.sha256" -Encoding ascii -NoNewline
           "ZIP_NAME=$name.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - uses: actions/upload-artifact@v4
         with:
           name: DisplayPrompt-win-x64
-          path: ${{ env.ZIP_NAME }}
+          path: |
+            ${{ env.ZIP_NAME }}
+            ${{ env.ZIP_NAME }}.sha256
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.ZIP_NAME }}
+          files: |
+            ${{ env.ZIP_NAME }}
+            ${{ env.ZIP_NAME }}.sha256
           generate_release_notes: true

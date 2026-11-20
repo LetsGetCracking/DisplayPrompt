@@ -43,7 +43,8 @@ When someone connects a laptop to a projector, Windows often picks the wrong mod
 - **Gets out of the way.** The panel hides itself after 10 seconds (pausing while the mouse is over it), or as soon as an option is chosen.
 - **Tray icon.** Click it to open the panel any time. Right-click it to restart or exit.
 - **Self-healing.** After every display change the app quietly refreshes itself, and if the panel ever opens off screen, or the app stops responding, it restarts automatically. Problems are written to a small log file.
-- **No admin rights needed to run**, and no network access, telemetry or data collection.
+- **Updates itself from GitHub.** It checks every time it starts (and daily), installs new releases silently, and restarts into them. No admin prompts.
+- **No admin rights needed to run**, and no telemetry or data collection. The only network access is the update check against this GitHub repository.
 
 <p align="center">
   <img src="docs/images/arrange.png" width="380" alt="Arrange displays view">
@@ -62,7 +63,7 @@ When someone connects a laptop to a projector, Windows often picks the wrong mod
    ```
 3. The icon appears in the system tray. Plug in a screen to try it.
 
-The installer copies the app to `C:\Program Files\Ctrl+Alt+Elite\DisplayPrompt\` and starts it for **every user** at sign-in. The `.exe` is self-contained, so the PC does not need .NET installed.
+The installer copies the app to `C:\Program Files\Ctrl+Alt+Elite\DisplayPrompt\`, starts it for **every user** at sign-in, and sets up automatic updates. The `.exe` is self-contained, so the PC does not need .NET installed.
 
 To remove it, run `.\uninstall.ps1` the same way.
 
@@ -101,6 +102,16 @@ The result is `publish\DisplayPrompt.exe`.
 | Move the panel | Drag it by the header |
 | Restart or exit | Right-click the tray icon |
 
+### Automatic updates
+
+Once installed, Display Prompt keeps itself up to date from this repository's [releases](../../releases):
+
+- **When it checks:** every time the app starts, 3 minutes after the PC boots, once a day, and whenever you choose **Check for updates** in the tray menu.
+- **How it installs:** a scheduled task (`\Ctrl+Alt+Elite\DisplayPrompt Update`) running as SYSTEM downloads the new release, checks its SHA-256 checksum, and swaps in the new `.exe`. Users never see an admin prompt.
+- **What users see:** the app restarts into the new version within a minute (after the panel is closed, if it's open). The tray icon's tooltip shows the installed version.
+- **Turning it off:** set `HKLM\Software\Ctrl+Alt+Elite\DisplayPrompt` → `AutoUpdate` = `0` (DWORD).
+- **Update log:** `C:\ProgramData\Ctrl+Alt+Elite\DisplayPrompt\update.log`
+
 ### Best quality and mirroring
 
 When screens are mirrored, Windows shows the *same* image on both, so they must share one resolution. With **Best quality** on, Display Prompt picks the highest resolution both screens can display.
@@ -119,9 +130,23 @@ The setting is remembered per user in `HKCU\Software\Ctrl+Alt+Elite\DisplayPromp
 |---|---|
 | Panel doesn't appear | Wait a few seconds: the app refreshes itself after display changes. If it still doesn't, right-click the tray icon, then **Restart Display Prompt** |
 | Panel doesn't pop up when a screen is connected | It only appears when the number of connected screens *goes up*. Use the tray icon. |
+| Not updating | Check `C:\ProgramData\Ctrl+Alt+Elite\DisplayPrompt\update.log`, and that the [latest release](../../releases/latest) has a `.zip` and a `.zip.sha256` |
 | Something else odd | Check the log: **Win + R** → `notepad %LOCALAPPDATA%\DisplayPrompt\log.txt` |
 
 When reporting a bug, please [open an issue](../../issues) and include the last 20 lines of the log.
+
+## Publishing a new version (maintainers)
+
+1. Commit your changes.
+2. Tag the commit with the new version and push both:
+   ```powershell
+   git tag -a v1.11.0 -m "Display Prompt 1.11.0"
+   git push origin main
+   git push origin v1.11.0
+   ```
+3. GitHub Actions builds the `.exe` (stamped with the tag's version), creates the release with the zip and its `.sha256` checksum, and every installed copy picks it up automatically.
+
+Tags must look like `vMAJOR.MINOR.PATCH` (for example `v1.11.0`).
 
 ## How it works
 

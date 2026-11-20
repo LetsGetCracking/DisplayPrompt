@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.10.0
+- **Automatic updates from GitHub.** Every time the app starts, it asks the updater to check for a newer release. The updater also checks 3 minutes after boot and once a day.
+  - Updates are installed by a scheduled task running as SYSTEM, so users don't need admin rights and see no prompts.
+  - Downloads are verified against the release's SHA-256 checksum before being installed.
+  - Running copies restart into the new version within a minute (or as soon as the panel is closed).
+  - New **Check for updates** item in the tray menu. The tray tooltip shows the installed version.
+  - IT can turn updates off per PC with `HKLM\Software\Ctrl+Alt+Elite\DisplayPrompt` → `AutoUpdate = 0`.
+- The installer now starts the app as the signed-in user instead of as administrator.
+
 ## 1.9.0
 - **Fixed:** after unplugging and reconnecting a laptop to a multi-monitor setup, the panel often failed to appear (or opened off screen) until the app was restarted by hand.
   - After any display change the app now waits for the screens to settle, then quietly restarts itself, so it is always fresh.

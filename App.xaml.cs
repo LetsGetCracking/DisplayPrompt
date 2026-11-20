@@ -66,7 +66,7 @@ namespace DisplayPrompt
             }
 
             _isRetry = HasArg(e.Args, "--retry");
-            Log.Write("Started (v1.9)" + (e.Args.Length > 0 ? " args: " + string.Join(" ", e.Args) : ""));
+            Log.Write($"Started (v{Updater.RunningVersion})" + (e.Args.Length > 0 ? " args: " + string.Join(" ", e.Args) : ""));
             CreateTrayIcon();
 
             _watcher = new DisplayWatcher();
@@ -75,6 +75,12 @@ namespace DisplayPrompt
             _watcher.Start();
 
             StartWatchdog();
+            StartUpdateWatch();
+
+            // Check GitHub for a newer version every time the app genuinely starts
+            // (not on the quick self-refreshes after display changes)
+            if (!HasArg(e.Args, "--after"))
+                Task.Run(() => Updater.TriggerCheck("app started")); // don't hold up start-up
 
             if (HasArg(e.Args, "--show"))
                 ShowPopupWhenQuiet(GetArgValue(e.Args, "--info"));
@@ -177,13 +183,21 @@ namespace DisplayPrompt
             var menu = new System.Windows.Forms.ContextMenuStrip();
             menu.Items.Add("Display options…", null, (s, a) => ShowPopup());
             menu.Items.Add("Restart Display Prompt", null, (s, a) => Restart("Restart chosen from tray menu"));
+            menu.Items.Add("Check for updates", null, (s, a) =>
+            {
+                bool ok = Updater.TriggerCheck("chosen from tray menu");
+                _tray?.ShowBalloonTip(4000, "Display Prompt",
+                    ok ? $"Checking for updates… You're on version {Updater.RunningVersion}. If a newer one is found, it installs and restarts automatically."
+                       : "Couldn't start the update check. See the log for details.",
+                    System.Windows.Forms.ToolTipIcon.Info);
+            });
             menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             menu.Items.Add("Exit", null, (s, a) => ExitApp());
 
             _tray = new System.Windows.Forms.NotifyIcon
             {
                 Icon = LoadTrayIcon(),
-                Text = "Display Prompt",
+                Text = $"Display Prompt {Updater.RunningVersion}",
                 Visible = true,
                 ContextMenuStrip = menu
             };
@@ -253,6 +267,31 @@ namespace DisplayPrompt
             t.Start();
         }
 
+        // ================= Auto-update =================
+
+        /// <summary>
+        /// Once a minute, see whether the updater task has installed a newer exe.
+        /// If so, restart into it (waiting until the panel is closed).
+        /// </summary>
+        private void StartUpdateWatch()
+        {
+            var t = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+            t.Tick += (s, e) =>
+            {
+                if (_restarting || _handlingConnect) return;
+                if (!Updater.NewerVersionInstalled(out Version disk)) return;
+
+                if (_popup != null)
+                {
+                    _refreshPending = true; // restart when the panel closes
+                    return;
+                }
+                t.Stop();
+                Restart($"Updated from v{Updater.RunningVersion} to v{disk} - restarting");
+            };
+            t.Start();
+        }
+
         // ================= Self-healing =================
 
         /// <summary>
@@ -316,7 +355,9 @@ namespace DisplayPrompt
 
         private static void StartReplacement(string[] extraArgs)
         {
-            var psi = new ProcessStartInfo(Environment.ProcessPath) { UseShellExecute = false };
+            // Start the installed exe (after an update, that's the new version)
+            string exe = File.Exists(Updater.InstalledExePath) ? Updater.InstalledExePath : Environment.ProcessPath;
+            var psi = new ProcessStartInfo(exe) { UseShellExecute = false };
             psi.ArgumentList.Add("--after");
             psi.ArgumentList.Add(Environment.ProcessId.ToString());
             foreach (var a in extraArgs) psi.ArgumentList.Add(a);

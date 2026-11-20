@@ -34,8 +34,10 @@ Display Prompt is a single **WPF** app on **.NET 8**. It has no main window: it 
 | `IdentifyWindow.cs` | The large screen number shown in the bottom-left of each physical screen while arranging |
 | `AppSettings.cs` | Per-user settings in `HKCU\Software\Ctrl+Alt+Elite\DisplayPrompt` |
 | `WindowStyling.cs` | Windows 11 rounded corners and border via `DwmSetWindowAttribute` |
+| `Updater.cs` | App side of auto-update: starts the update task when the app starts, and restarts into a newer exe once it appears on disk |
+| `updater.ps1` | Runs as SYSTEM from the update task: finds the latest GitHub release, verifies the download's SHA-256, and swaps in the new exe |
 | `Log.cs` | Small rolling log at `%LocalAppData%\DisplayPrompt\log.txt` (kept under 512 KB) |
-| `build.ps1`, `install.ps1`, `uninstall.ps1` | Build, install for all users, remove |
+| `build.ps1`, `install.ps1`, `uninstall.ps1` | Build; install for all users and register the update task; remove both |
 
 ## Key design decisions
 
@@ -61,6 +63,11 @@ A tray app that silently dies is worse than none, so:
 - Every tray click builds a fresh panel, so a stuck panel can't block it.
 - **After any display change, the app restarts itself** once the screens have settled. On some laptop and dock combinations, a copy of the app that was running while the screens switched to mirror can no longer place or draw its panel, while a freshly started copy always can. Restarting takes about a second and is invisible apart from the tray icon blinking.
 - Half a second after the panel opens, the app checks that it is fully on screen. If it isn't, the app restarts and shows the panel again (once).
+
+### Auto-update
+The app lives in Program Files (admin-only) but runs as an ordinary user, so it can't replace itself. Instead `install.ps1` registers a scheduled task that runs `updater.ps1` as SYSTEM, with permissions that let any signed-in user *start* it but not change it. The app starts that task every time it launches. The updater replaces the exe by renaming the running file (Windows allows renaming, not overwriting, a running exe) and copying the new one in. The app checks the exe's version on disk once a minute and restarts into the newer one.
+
+GitHub Actions stamps the release tag's version into the exe and publishes a `.sha256` file next to the zip, which the updater checks before installing.
 
 ## Adding a feature
 
