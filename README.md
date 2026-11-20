@@ -42,7 +42,7 @@ When someone connects a laptop to a projector, Windows often picks the wrong mod
 - **Identifies each screen.** While you arrange, a large number appears in the bottom-left of every physical screen, and the one you're moving lights up blue.
 - **Gets out of the way.** The panel hides itself after 10 seconds (pausing while the mouse is over it), or as soon as an option is chosen.
 - **Tray icon.** Click it to open the panel any time. Right-click it to restart or exit.
-- **Self-healing.** If the app ever stops responding, it restarts itself. Problems are written to a small log file.
+- **Self-healing.** After every display change the app quietly refreshes itself, and if the panel ever opens off screen, or the app stops responding, it restarts automatically. Problems are written to a small log file.
 - **No admin rights needed to run**, and no network access, telemetry or data collection.
 
 <p align="center">
@@ -117,7 +117,7 @@ The setting is remembered per user in `HKCU\Software\Ctrl+Alt+Elite\DisplayPromp
 
 | Problem | Fix |
 |---|---|
-| Panel doesn't appear | Right-click the tray icon, then **Restart Display Prompt** |
+| Panel doesn't appear | Wait a few seconds: the app refreshes itself after display changes. If it still doesn't, right-click the tray icon, then **Restart Display Prompt** |
 | Panel doesn't pop up when a screen is connected | It only appears when the number of connected screens *goes up*. Use the tray icon. |
 | Something else odd | Check the log: **Win + R** → `notepad %LOCALAPPDATA%\DisplayPrompt\log.txt` |
 

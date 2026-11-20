@@ -18,12 +18,20 @@ namespace DisplayPrompt
         // If the app stops responding for this long, it restarts itself
         private static readonly TimeSpan HangLimit = TimeSpan.FromSeconds(20);
 
+        // Display changes right after start-up are echoes of the change that caused the restart
+        private static readonly TimeSpan IgnoreChangesAfterStart = TimeSpan.FromSeconds(8);
+
         private Mutex _mutex;
         private System.Windows.Forms.NotifyIcon _tray;
         private DisplayWatcher _watcher;
         private PopupWindow _popup;
         private long _lastHeartbeatTicks = DateTime.UtcNow.Ticks;
         private volatile bool _restarting;
+
+        private readonly DateTime _startedUtc = DateTime.UtcNow;
+        private bool _handlingConnect;    // busy switching modes after a plug-in
+        private bool _refreshPending;     // refresh once the open panel closes
+        private bool _isRetry;            // this copy was started to retry showing the panel
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -43,9 +51,7 @@ namespace DisplayPrompt
             AppDomain.CurrentDomain.UnhandledException += (s, a) =>
                 Log.Write("Fatal error: " + a.ExceptionObject);
 
-            // Draw with the CPU instead of the graphics card. Some graphics drivers don't draw
-            // see-through (rounded) windows while screens are mirrored; software rendering
-            // always works and is plenty fast for this small panel.
+            // Draw with the CPU instead of the graphics card (more reliable across drivers)
             System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
 
             // When restarting, wait for the old copy to exit before taking over
@@ -59,23 +65,28 @@ namespace DisplayPrompt
                 return;
             }
 
-            Log.Write("Started (v1.8)");
+            _isRetry = HasArg(e.Args, "--retry");
+            Log.Write("Started (v1.9)" + (e.Args.Length > 0 ? " args: " + string.Join(" ", e.Args) : ""));
             CreateTrayIcon();
 
             _watcher = new DisplayWatcher();
             _watcher.NewDisplayConnected += OnNewDisplayConnected;
+            _watcher.DisplaysChanged += OnDisplaysChanged;
             _watcher.Start();
 
             StartWatchdog();
 
-            if (e.Args.Any(a => a.Equals("--show", StringComparison.OrdinalIgnoreCase)))
-                ShowPopup();
+            if (HasArg(e.Args, "--show"))
+                ShowPopupWhenQuiet(GetArgValue(e.Args, "--info"));
         }
 
-        // ================= Display connected =================
+        // ================= Display changes =================
 
         private async void OnNewDisplayConnected()
         {
+            if (_handlingConnect || _restarting) return;
+            _handlingConnect = true;
+            string info = null;
             try
             {
                 Log.Write("New display connected");
@@ -84,7 +95,6 @@ namespace DisplayPrompt
                 if (DisplayManager.GetCurrentMode() != DefaultModeOnConnect)
                     await Task.Run(() => DisplayManager.Apply(DefaultModeOnConnect));
 
-                string info = null;
                 if (AppSettings.BestQuality && DisplayManager.GetCurrentMode() == DisplayMode.Mirror)
                 {
                     string res = await Task.Run(() =>
@@ -96,14 +106,51 @@ namespace DisplayPrompt
                     Log.Write("Mirror resolution: " + (res ?? "unchanged"));
                 }
 
-                ShowPopup();
-                if (info != null) _popup?.ShowInfo(info);
+                // Wait until Windows has finished rearranging the screens
+                await WaitForQuietAsync(TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(12));
             }
             catch (Exception ex)
             {
                 Log.Write("OnNewDisplayConnected failed: " + ex);
-                ShowPopup();
             }
+
+            // A copy that was running during the display switch can lose the ability to
+            // show its panel, so hand over to a fresh copy, which then shows the panel.
+            if (info != null) Restart("Refreshing after new display", "--show", "--info", info);
+            else Restart("Refreshing after new display", "--show");
+        }
+
+        private void OnDisplaysChanged()
+        {
+            if (_handlingConnect || _restarting) return;
+            if (DateTime.UtcNow - _startedUtc < IgnoreChangesAfterStart) return;
+
+            if (_popup != null)
+            {
+                // Don't interrupt someone using the panel; refresh when it closes
+                _refreshPending = true;
+                Log.Write("Display changed - will refresh when the panel closes");
+                return;
+            }
+            Restart("Refreshing after display change");
+        }
+
+        /// <summary>Wait until there have been no display changes for 'quiet', or until 'max' has passed.</summary>
+        private async Task WaitForQuietAsync(TimeSpan quiet, TimeSpan max)
+        {
+            var until = DateTime.UtcNow + max;
+            while (DateTime.UtcNow < until)
+            {
+                if (_watcher == null || DateTime.UtcNow - _watcher.LastChangeUtc >= quiet) return;
+                await Task.Delay(250);
+            }
+        }
+
+        private async void ShowPopupWhenQuiet(string info)
+        {
+            await WaitForQuietAsync(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(8));
+            ShowPopup();
+            if (!string.IsNullOrEmpty(info)) _popup?.ShowInfo(info);
         }
 
         // ================= Tray =================
@@ -163,11 +210,17 @@ namespace DisplayPrompt
                     }
 
                     var popup = new PopupWindow();
-                    popup.Closed += (s, a) => { if (ReferenceEquals(_popup, s)) _popup = null; };
+                    popup.Closed += (s, a) =>
+                    {
+                        if (ReferenceEquals(_popup, s)) _popup = null;
+                        if (_popup == null && _refreshPending) Restart("Refreshing after display change");
+                    };
                     _popup = popup;
                     popup.Show();
                     popup.Activate();
                     Log.Write("Popup shown (mode: " + DisplayManager.GetCurrentMode() + ")");
+
+                    VerifyPopupVisibleSoon(popup);
                 }
                 catch (Exception ex)
                 {
@@ -175,6 +228,29 @@ namespace DisplayPrompt
                     _popup = null;
                 }
             });
+        }
+
+        /// <summary>
+        /// Half a second after opening, make sure the panel really is on screen.
+        /// If not, restart and show it from a fresh copy (once).
+        /// </summary>
+        private void VerifyPopupVisibleSoon(PopupWindow popup)
+        {
+            var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+            t.Tick += (s, e) =>
+            {
+                t.Stop();
+                if (_restarting || !ReferenceEquals(_popup, popup) || popup.IsClosing) return;
+                if (popup.IsFullyOnScreen()) return;
+
+                if (_isRetry)
+                {
+                    Log.Write("Panel still off screen after a fresh start - leaving it");
+                    return;
+                }
+                Restart("Panel was off screen - restarting to show it", "--show", "--retry");
+            };
+            t.Start();
         }
 
         // ================= Self-healing =================
@@ -208,14 +284,15 @@ namespace DisplayPrompt
             t.Start();
         }
 
-        private void Restart(string reason)
+        private void Restart(string reason, params string[] extraArgs)
         {
             if (_restarting) return;
             _restarting = true;
             Log.Write(reason);
             try
             {
-                StartReplacement();
+                if (_popup != null) { try { _popup.ForceClose(); } catch { } _popup = null; }
+                StartReplacement(extraArgs);
                 _watcher?.Dispose();
                 if (_tray != null) { _tray.Visible = false; _tray.Dispose(); _tray = null; }
                 try { _mutex?.ReleaseMutex(); } catch { }
@@ -230,29 +307,41 @@ namespace DisplayPrompt
             _restarting = true;
             try
             {
-                StartReplacement();
+                StartReplacement(Array.Empty<string>());
                 try { if (_tray != null) _tray.Visible = false; } catch { }
             }
             catch (Exception ex) { Log.Write("Restart failed: " + ex); }
             Environment.Exit(1);
         }
 
-        private static void StartReplacement()
+        private static void StartReplacement(string[] extraArgs)
         {
-            Process.Start(new ProcessStartInfo(Environment.ProcessPath,
-                "--after " + Environment.ProcessId) { UseShellExecute = false });
+            var psi = new ProcessStartInfo(Environment.ProcessPath) { UseShellExecute = false };
+            psi.ArgumentList.Add("--after");
+            psi.ArgumentList.Add(Environment.ProcessId.ToString());
+            foreach (var a in extraArgs) psi.ArgumentList.Add(a);
+            Process.Start(psi);
         }
 
         private static void WaitForPreviousInstance(string[] args)
         {
-            int i = Array.FindIndex(args, a => a.Equals("--after", StringComparison.OrdinalIgnoreCase));
-            if (i < 0 || i + 1 >= args.Length || !int.TryParse(args[i + 1], out int pid)) return;
+            string value = GetArgValue(args, "--after");
+            if (!int.TryParse(value, out int pid)) return;
             try
             {
                 using (var old = Process.GetProcessById(pid))
                     old.WaitForExit(15000);
             }
             catch { /* already gone */ }
+        }
+
+        private static bool HasArg(string[] args, string name) =>
+            args.Any(a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+        private static string GetArgValue(string[] args, string name)
+        {
+            int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
+            return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
         }
 
         // ================= Exit =================

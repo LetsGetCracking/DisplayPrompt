@@ -13,6 +13,12 @@ namespace DisplayPrompt
     {
         public event Action NewDisplayConnected;
 
+        /// <summary>Raised after any display change once things have been quiet for a moment.</summary>
+        public event Action DisplaysChanged;
+
+        /// <summary>When Windows last reported a display change (UTC).</summary>
+        public DateTime LastChangeUtc { get; private set; } = DateTime.UtcNow;
+
         private const int WM_DISPLAYCHANGE = 0x007E;
         private const int WM_DEVICECHANGE = 0x0219;
         private const int DBT_DEVICEARRIVAL = 0x8000;
@@ -72,6 +78,7 @@ namespace DisplayPrompt
 
         private void Kick()
         {
+            LastChangeUtc = DateTime.UtcNow;
             _debounce.Stop();
             _debounce.Start();
         }
@@ -82,6 +89,7 @@ namespace DisplayPrompt
             bool added = count > _lastCount && count >= 2;
             _lastCount = count;
             if (added) NewDisplayConnected?.Invoke();
+            else DisplaysChanged?.Invoke();
         }
 
         public void Dispose()

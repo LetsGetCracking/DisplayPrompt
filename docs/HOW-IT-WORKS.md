@@ -14,7 +14,8 @@ Display Prompt is a single **WPF** app on **.NET 8**. It has no main window: it 
         │            App.OnNewDisplayConnected
         │              ├─ DisplayManager.Apply(Mirror)
         │              ├─ DisplayLayout.SetBestMirrorResolution()   (if Best quality is on)
-        │              └─ ShowPopup()
+        │              ├─ wait for the screens to settle
+        │              └─ restart itself with --show  → fresh copy shows the panel
         ▼
  PopupWindow ──► user picks a mode ──► DisplayManager.Apply(mode)
                       │
@@ -58,6 +59,8 @@ A tray app that silently dies is worse than none, so:
 - Unhandled errors are logged instead of crashing the app.
 - A background watchdog restarts the app if its UI stops responding for 20 seconds.
 - Every tray click builds a fresh panel, so a stuck panel can't block it.
+- **After any display change, the app restarts itself** once the screens have settled. On some laptop and dock combinations, a copy of the app that was running while the screens switched to mirror can no longer place or draw its panel, while a freshly started copy always can. Restarting takes about a second and is invisible apart from the tray icon blinking.
+- Half a second after the panel opens, the app checks that it is fully on screen. If it isn't, the app restarts and shows the panel again (once).
 
 ## Adding a feature
 

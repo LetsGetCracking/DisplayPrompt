@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.0
+- **Fixed:** after unplugging and reconnecting a laptop to a multi-monitor setup, the panel often failed to appear (or opened off screen) until the app was restarted by hand.
+  - After any display change the app now waits for the screens to settle, then quietly restarts itself, so it is always fresh.
+  - When a new display is connected, the mode is switched first, and the panel is then shown by the fresh copy.
+  - Every time the panel opens, the app checks it is fully on screen; if not, it restarts and shows it again automatically.
+- The log records why each automatic restart happened.
+
 ## 1.8.0
 - The panel is always kept fully on screen: its position is re-checked after it opens and after every display change.
 - The panel can be dragged by its header.

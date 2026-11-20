@@ -13,7 +13,7 @@
     <ApplicationIcon>app.ico</ApplicationIcon>
     <Company>Ctrl+Alt+Elite</Company>
     <Product>Display Prompt</Product>
-    <Version>1.8.0</Version>
+    <Version>1.9.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

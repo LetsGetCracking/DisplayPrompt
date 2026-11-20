@@ -172,6 +172,27 @@ namespace DisplayPrompt
             }
         }
 
+        /// <summary>True if the whole panel is inside the main screen's visible area.</summary>
+        public bool IsFullyOnScreen()
+        {
+            try
+            {
+                IntPtr hwnd = new WindowInteropHelper(this).Handle;
+                if (hwnd == IntPtr.Zero || !IsVisible) return false;
+                if (!GetPrimaryWorkArea(out RECT wa) || !GetWindowRect(hwnd, out RECT r)) return false;
+                if (r.Right - r.Left < 50 || r.Bottom - r.Top < 50) return false;
+
+                const int tol = 2;
+                bool ok = r.Left >= wa.Left - tol && r.Top >= wa.Top - tol &&
+                          r.Right <= wa.Right + tol && r.Bottom <= wa.Bottom + tol;
+                if (!ok)
+                    Log.Write($"Panel check: window {r.Left},{r.Top}-{r.Right},{r.Bottom} " +
+                              $"outside work area {wa.Left},{wa.Top}-{wa.Right},{wa.Bottom}");
+                return ok;
+            }
+            catch { return false; }
+        }
+
         /// <summary>If any part of the panel is outside the main screen, pull it back in.</summary>
         private void EnsureOnScreen()
         {
